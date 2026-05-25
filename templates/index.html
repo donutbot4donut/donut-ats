@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DonutATS — Lightweight Applicant Tracking</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+:root { --donut-pink: #ff6b9d; --donut-dark: #1a1a2e; --donut-bg: #0f0f1a; }
+body { background: var(--donut-bg); color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.nav-pills .nav-link { color: #a0a0b0; border-radius: 8px; margin: 2px 4px; }
+.nav-pills .nav-link.active { background: var(--donut-pink); color: #fff; }
+.nav-pills .nav-link:hover:not(.active) { background: rgba(255,107,157,0.15); color: #fff; }
+.card { background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px; }
+.card-header { background: rgba(255,107,157,0.08); border-bottom: 1px solid #2a2a3e; color: #fff; font-weight: 600; }
+.badge-stage { font-size: 0.75rem; padding: 4px 8px; border-radius: 6px; }
+.badge-screening { background: rgba(255,193,7,0.2); color: #ffc107; }
+.badge-interview { background: rgba(13,202,240,0.2); color: #0dcaf0; }
+.badge-offer { background: rgba(25,135,84,0.2); color: #198754; }
+.badge-rejected { background: rgba(220,53,69,0.2); color: #dc3545; }
+.table { color: #e0e0e0; }
+.table th { border-color: #2a2a3e; color: #888; font-weight: 500; font-size: 0.85rem; text-transform: uppercase; }
+.table td { border-color: #2a2a3e; vertical-align: middle; }
+.table-hover tbody tr:hover { background: rgba(255,107,157,0.05); }
+.btn-donut { background: var(--donut-pink); border: none; color: #fff; }
+.btn-donut:hover { background: #e85a8c; color: #fff; }
+.btn-outline-donut { border: 1px solid var(--donut-pink); color: var(--donut-pink); background: transparent; }
+.btn-outline-donut:hover { background: var(--donut-pink); color: #fff; }
+.form-control, .form-select { background: #12121e; border: 1px solid #2a2a3e; color: #e0e0e0; }
+.form-control:focus, .form-select:focus { background: #1a1a2e; border-color: var(--donut-pink); color: #fff; box-shadow: 0 0 0 0.2rem rgba(255,107,157,0.15); }
+.modal-content { background: #1a1a2e; border: 1px solid #2a2a3e; }
+.stat-card { text-align: center; padding: 20px; }
+.stat-value { font-size: 2rem; font-weight: 700; color: var(--donut-pink); }
+.stat-label { font-size: 0.85rem; color: #888; }
+.stage-col { min-height: 200px; border: 1px dashed #2a2a3e; border-radius: 8px; padding: 10px; }
+.stage-col-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 10px; }
+.app-card { background: #12121e; border: 1px solid #2a2a3e; border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
+.app-card:hover { border-color: var(--donut-pink); }
+.score-badge { display: inline-block; width: 42px; height: 42px; line-height: 42px; text-align: center; border-radius: 50%; font-weight: 700; font-size: 0.85rem; }
+.score-high { background: rgba(25,135,84,0.2); color: #198754; }
+.score-mid { background: rgba(255,193,7,0.2); color: #ffc107; }
+.score-low { background: rgba(220,53,69,0.2); color: #dc3545; }
+textarea.form-control { min-height: 100px; }
+toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
+</style>
+</head>
+<body>
+<div class="container-fluid py-3">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h3 class="mb-0">🍩 <span style="color:var(--donut-pink)">DonutATS</span></h3>
+    <small class="text-muted">Lightweight Applicant Tracking System</small>
+  </div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-pills mb-4" id="mainTabs" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-dash" onclick="loadDashboard()">📊 Dashboard</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-candidates" onclick="loadCandidates()">👥 Candidates</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-jobs" onclick="loadJobs()">💼 Jobs</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-apps" onclick="loadApplications()">📋 Applications</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-templates" onclick="loadTemplates()">📝 Templates</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-settings" onclick="loadSettings()">⚙️ Settings</button></li>
+  </ul>
+
+  <div class="tab-content">
+    <!-- Dashboard -->
+    <div class="tab-pane fade show active" id="tab-dash">
+      <div class="row" id="dash-stats"></div>
+    </div>
+
+    <!-- Candidates -->
+    <div class="tab-pane fade" id="tab-candidates">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex gap-2">
+          <input type="text" class="form-control" id="cand-search" placeholder="搜索姓名/邮箱/关键词..." style="width:300px" onkeyup="loadCandidates()">
+          <select class="form-select" id="cand-source" style="width:150px" onchange="loadCandidates()">
+            <option value="">All Sources</option>
+          </select>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-donut btn-sm" onclick="scanEmail()">📧 Scan Gmail</button>
+          <button class="btn btn-outline-donut btn-sm" onclick="scanTG()">📱 Scan Telegram</button>
+          <button class="btn btn-donut btn-sm" onclick="showUploadModal()">📤 Upload Resume</button>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover" id="cand-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Source</th><th>Experience</th><th>Skills</th><th>Date</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <nav><ul class="pagination justify-content-center" id="cand-pagination"></ul></nav>
+    </div>
+
+    <!-- Jobs -->
+    <div class="tab-pane fade" id="tab-jobs">
+      <div class="d-flex justify-content-between mb-3">
+        <h5>Open Positions</h5>
+        <button class="btn btn-donut btn-sm" onclick="showJobModal()">+ New Job</button>
+      </div>
+      <div class="row" id="jobs-list"></div>
+    </div>
+
+    <!-- Applications -->
+    <div class="tab-pane fade" id="tab-apps">
+      <div class="d-flex justify-content-between mb-3">
+        <div>
+          <select class="form-select d-inline" id="app-job-filter" style="width:250px" onchange="loadApplications()"><option value="">All Jobs</option></select>
+        </div>
+        <button class="btn btn-donut btn-sm" onclick="matchAll()">🔍 Score All Candidates</button>
+      </div>
+      <div class="row" id="app-board"></div>
+    </div>
+
+    <!-- Templates -->
+    <div class="tab-pane fade" id="tab-templates">
+      <div class="d-flex justify-content-between mb-3">
+        <h5>Response Templates</h5>
+        <button class="btn btn-donut btn-sm" onclick="showTemplateModal()">+ New Template</button>
+      </div>
+      <div class="row" id="templates-list"></div>
+    </div>
+
+    <!-- Settings -->
+    <div class="tab-pane fade" id="tab-settings">
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card mb-3"><div class="card-header">Recruitment Criteria</div>
+            <div class="card-body" id="criteria-list"></div>
+            <div class="card-footer"><button class="btn btn-outline-donut btn-sm" onclick="showCriteriaModal()">+ Add Criteria</button></div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card mb-3"><div class="card-header">Integrations</div>
+            <div class="card-body">
+              <div class="mb-3"><label class="form-label">Gmail User</label><input class="form-control" id="cfg-gmail" placeholder="user@gmail.com" onchange="saveConfig('gmail_user',this.value)"></div>
+              <div class="mb-3"><label class="form-label">Gmail App Password</label><input class="form-control" type="password" id="cfg-gmail-pass" placeholder="App password" onchange="saveConfig('gmail_pass',this.value)"></div>
+              <div class="mb-3"><label class="form-label">TG Bot Token</label><input class="form-control" type="password" id="cfg-tg-token" placeholder="Bot token from @BotFather" onchange="saveConfig('tg_token',this.value)"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5>Upload Resume</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="file" class="form-control mb-3" id="upload-file" accept=".pdf,.docx,.doc">
+    <select class="form-select" id="upload-source"><option value="manual">Manual</option><option value="bosszhipin">Boss直聘</option><option value="linkedin">LinkedIn</option><option value="referral">Referral</option><option value="other">Other</option></select>
+  </div>
+  <div class="modal-footer"><button class="btn btn-donut" onclick="uploadResume()">Upload & Parse</button></div>
+</div></div></div>
+
+<!-- Candidate Detail Modal -->
+<div class="modal fade" id="detailModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><h5 id="detail-title"></h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body" id="detail-body"></div>
+</div></div></div>
+
+<!-- Job Modal -->
+<div class="modal fade" id="jobModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><h5 id="job-modal-title">New Job</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input class="form-control mb-2" id="job-title" placeholder="Job title (e.g. 资深后端工程师)">
+    <input class="form-control mb-2" id="job-dept" placeholder="Department (e.g. Engineering)">
+    <textarea class="form-control mb-2" id="job-resp" placeholder="Responsibilities (one per line)"></textarea>
+    <textarea class="form-control mb-2" id="job-req" placeholder="Requirements (one per line)"></textarea>
+    <textarea class="form-control mb-2" id="job-nice" placeholder="Nice to have (one per line)"></textarea>
+    <div class="mb-2"><label class="form-label">Criteria Weights</label><div id="job-criteria-weights"></div></div>
+  </div>
+  <div class="modal-footer"><button class="btn btn-donut" onclick="saveJob()">Save Job</button></div>
+</div></div></div>
+
+<!-- Template Modal -->
+<div class="modal fade" id="templateModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><h5 id="template-modal-title">New Template</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input class="form-control mb-2" id="tmpl-title" placeholder="Template name">
+    <div class="row mb-2"><div class="col"><select class="form-select" id="tmpl-type"><option value="interview_invite">Interview Invite</option><option value="rejection">Rejection</option><option value="offer_communication">Offer Communication</option><option value="screening_questions">Screening Questions</option></select></div>
+    <div class="col"><select class="form-select" id="tmpl-channel"><option value="email">Email</option><option value="telegram">Telegram</option><option value="slack">Slack</option></select></div></div>
+    <input class="form-control mb-2" id="tmpl-subject" placeholder="Subject (for email)">
+    <textarea class="form-control mb-2" id="tmpl-content" rows="10" placeholder="Template content. Use {{candidate_name}}, {{job_title}}, {{sender_name}}, etc."></textarea>
+    <details><summary class="text-muted">Available variables</summary>
+      <small>{{candidate_name}}, {{job_title}}, {{department}}, {{sender_name}}, {{sender_email}}, {{time_option_1}}, {{time_option_2}}, {{time_option_3}}, {{salary}}, {{salary_term}}, {{equity}}, {{start_date}}, {{offer_expiry_date}}</small>
+    </details>
+  </div>
+  <div class="modal-footer"><button class="btn btn-donut" onclick="saveTemplate()">Save Template</button></div>
+</div></div></div>
+
+<!-- Criteria Modal -->
+<div class="modal fade" id="criteriaModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5>Add Criteria</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <select class="form-select mb-2" id="crit-cat"><option value="values">Values</option><option value="soft_skills">Soft Skills</option><option value="technical">Technical</option><option value="experience">Experience</option><option value="education">Education</option><option value="industry">Industry</option></select>
+    <input class="form-control mb-2" id="crit-name" placeholder="Name">
+    <input class="form-control mb-2" id="crit-desc" placeholder="Description">
+    <input class="form-control mb-2" type="number" step="0.1" id="crit-weight" placeholder="Weight (0-2, default 1.0)" value="1.0">
+  </div>
+  <div class="modal-footer"><button class="btn btn-donut" onclick="saveCriteria()">Save</button></div>
+</div></div></div>
+
+<!-- Communication Modal -->
+<div class="modal fade" id="commModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><h5>Send Communication</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <div class="mb-2"><label>Template</label><select class="form-select" id="comm-template" onchange="previewTemplate()"><option value="">-- Select template --</option></select></div>
+    <div class="mb-2"><label>Channel</label><select class="form-select" id="comm-channel"><option value="email">Email</option><option value="telegram">Telegram</option><option value="slack">Slack</option></select></div>
+    <div class="mb-2"><label>Content</label><textarea class="form-control" id="comm-content" rows="10"></textarea></div>
+  </div>
+  <div class="modal-footer"><button class="btn btn-donut" onclick="sendCommunication()">Send</button></div>
+</div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const API = '/api';
+let currentPage = 1, currentCandidateId = null, currentJobId = null;
+
+// ─── Helpers ───
+async function api(url, opts={}) {
+  const res = await fetch(API + url, { headers: {'Content-Type':'application/json'}, ...opts });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||res.statusText); }
+  return res.json();
+}
+
+function stageClass(s) {
+  const map = {screening:'badge-screening',phone_interview:'badge-interview',technical_interview:'badge-interview',final_interview:'badge-interview',offer:'badge-offer',rejected:'badge-rejected',withdrawn:'badge-rejected'};
+  return map[s]||'bg-secondary';
+}
+function scoreClass(s) { return s>=70?'score-high':s>=40?'score-mid':'score-low'; }
+
+let configCache = {};
+function getConfig(key) { return configCache[key] || localStorage.getItem('ats_'+key) || ''; }
+function saveConfig(key, val) { configCache[key]=val; localStorage.setItem('ats_'+key, val); }
+['gmail_user','gmail_pass','tg_token'].forEach(k=>{ configCache[k]=getConfig(k); });
+
+// ─── Dashboard ───
+async function loadDashboard() {
+  try {
+    const s = await api('/dashboard/stats');
+    document.getElementById('dash-stats').innerHTML = `
+      <div class="col-md-3"><div class="card stat-card"><div class="stat-value">${s.total_candidates}</div><div class="stat-label">Total Candidates</div></div></div>
+      <div class="col-md-3"><div class="card stat-card"><div class="stat-value">${s.recent_7d}</div><div class="stat-label">New (7 days)</div></div></div>
+      <div class="col-md-3"><div class="card stat-card"><div class="stat-value">${s.total_jobs}</div><div class="stat-label">Active Jobs</div></div></div>
+      <div class="col-md-3"><div class="card stat-card"><div class="stat-value">${s.total_applications}</div><div class="stat-label">Applications</div></div></div>
+      <div class="col-12 mt-3"><div class="card p-3"><h6>By Source</h6>${Object.entries(s.by_source).map(([k,v])=>`<span class="badge bg-secondary me-2">${k}: ${v}</span>`).join('')||'<small class="text-muted">No data</small>'}</div></div>
+      <div class="col-12 mt-3"><div class="card p-3"><h6>By Stage</h6>${Object.entries(s.by_stage).map(([k,v])=>`<span class="badge ${stageClass(k)} me-2">${k}: ${v}</span>`).join('')||'<small class="text-muted">No applications</small>'}</div></div>`;
+  } catch(e) { document.getElementById('dash-stats').innerHTML=`<div class="alert alert-danger">${e.message}</div>`; }
+}
+
+// ─── Candidates ───
+async function loadCandidates(page=1) {
+  currentPage = page;
+  const search = document.getElementById('cand-search')?.value || '';
+  const source = document.getElementById('cand-source')?.value || '';
+  try {
+    const data = await api(`/candidates?page=${page}&per_page=20&search=${encodeURIComponent(search)}&source=${encodeURIComponent(source)}`);
+    const tbody = document.querySelector('#cand-table tbody');
+    tbody.innerHTML = data.items.map(c => `
+      <tr>
+        <td><a href="#" onclick="showCandidate(${c.id});return false" class="text-decoration-none" style="color:var(--donut-pink)">${c.name||'Unknown'}</a></td>
+        <td>${c.email||'-'}</td>
+        <td><span class="badge bg-secondary">${c.source_channel||'-'}</span></td>
+        <td>${c.years_of_experience?c.years_of_experience+' yrs':'-'}</td>
+        <td>${(c.skills||[]).slice(0,4).join(', ')}</td>
+        <td><small>${(c.created_at||'').slice(0,10)}</small></td>
+        <td><button class="btn btn-sm btn-outline-danger" onclick="deleteCandidate(${c.id})" title="Delete"><i class="bi bi-trash"></i></button></td>
+      </tr>`).join('');
+    document.getElementById('cand-pagination').innerHTML = data.total>20 ? 
+      `<li class="page-item ${page<=1?'disabled':''}"><a class="page-link" href="#" onclick="loadCandidates(${page-1});return false">←</a></li>
+       <li class="page-item disabled"><span class="page-link">Page ${page} / ${Math.ceil(data.total/20)}</span></li>
+       <li class="page-item ${page*20>=data.total?'disabled':''}"><a class="page-link" href="#" onclick="loadCandidates(${page+1});return false">→</a></li>` : '';
+  } catch(e) { document.querySelector('#cand-table tbody').innerHTML=`<tr><td colspan="7" class="text-danger">Error: ${e.message}</td></tr>`; }
+}
+
+async function showCandidate(id) {
+  currentCandidateId = id;
+  try {
+    const c = await api('/candidates/'+id);
+    const edu = (c.educations||[]).map(e => `${e.school||'?'} ${e.degree||''} ${e.major||''} ${e.graduated_year||''}${e.is_985211?' 🏫':''}`).join('<br>');
+    const work = (c.work_experiences||[]).map(w => `<strong>${w.company||''}</strong> — ${w.role||''} (${w.start_date} → ${w.end_date})<br><small>${(w.description||'').slice(0,200)}</small>`).join('<hr class="border-secondary">');
+    const proj = (c.project_experiences||[]).map(p => `<strong>${p.project_name||''}</strong> <small class="text-muted">${p.tech_stack||''}</small><br><small>${(p.description||'').slice(0,200)}</small>`).join('<hr class="border-secondary">');
+    document.getElementById('detail-title').textContent = c.name||'Unknown';
+    document.getElementById('detail-body').innerHTML = `
+      <div class="row"><div class="col-md-6">
+        <p>📧 ${c.email||'-'}  📱 ${c.phone||'-'}  🎂 ${c.age||'?'}岁</p>
+        <p>💰 ${c.expected_salary_min||'?'} - ${c.expected_salary_max||'?'}  |  💼 ${c.years_of_experience||'?'} yrs exp</p>
+        <p>📍 ${c.source_channel||'-'}</p>
+        <h6>Skills</h6><p>${(c.skills||[]).join(', ')||'None detected'}</p>
+        <h6>Education</h6><p>${edu||'None'}</p>
+      </div><div class="col-md-6">
+        <h6>Work Experience</h6>${work||'<p class="text-muted">None</p>'}
+        <h6>Projects</h6>${proj||'<p class="text-muted">None</p>'}
+      </div></div>
+      <div class="mt-3"><button class="btn btn-outline-donut btn-sm" onclick="showCommModal(${id})">✉️ Send Message</button>
+      <button class="btn btn-outline-donut btn-sm ms-2" onclick="quickScore(${id})">🔍 Score</button></div>`;
+    new bootstrap.Modal(document.getElementById('detailModal')).show();
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+function showUploadModal() { new bootstrap.Modal(document.getElementById('uploadModal')).show(); }
+
+async function uploadResume() {
+  const file = document.getElementById('upload-file').files[0];
+  const source = document.getElementById('upload-source').value;
+  if (!file) return alert('Please select a file');
+  const form = new FormData();
+  form.append('file', file);
+  form.append('source', source);
+  try {
+    const res = await fetch(API+'/candidates/upload', {method:'POST', body:form});
+    const data = await res.json();
+    alert('Resume parsed successfully!');
+    bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
+    loadCandidates(currentPage);
+  } catch(e) { alert('Upload failed: '+e.message); }
+}
+
+async function deleteCandidate(id) {
+  if (!confirm('Delete this candidate?')) return;
+  await api('/candidates/'+id, {method:'DELETE'});
+  loadCandidates(currentPage);
+}
+
+async function scanEmail() { const r = await api('/candidates/email-ingest', {method:'POST'}); alert(JSON.stringify(r.results, null, 2)); }
+async function scanTG() { const r = await api('/candidates/tg-ingest', {method:'POST'}); alert(JSON.stringify(r.results, null, 2)); }
+
+async function quickScore(cid) {
+  const jobs = await api('/jobs');
+  if (!jobs.length) return alert('No jobs available. Create a job first.');
+  const jid = prompt('Score for job (ID):\n'+jobs.map(j=>`${j.id}: ${j.title}`).join('\n'));
+  if (!jid) return;
+  try {
+    const r = await api('/applications', {method:'POST', body:JSON.stringify({candidate_id:cid, job_id:parseInt(jid)})});
+    alert(`Score: ${r.total_score}/100\n${Object.entries(r.detail).map(([k,v])=>`${k}: ${v.score} (w:${v.weight})`).join('\n')}`);
+    bootstrap.Modal.getInstance(document.getElementById('detailModal')).hide();
+  } catch(e) { alert('Scoring failed: '+e.message); }
+}
+
+// ─── Jobs ───
+async function loadJobs() {
+  try {
+    const jobs = await api('/jobs');
+    document.getElementById('jobs-list').innerHTML = jobs.map(j => `
+      <div class="col-md-6 mb-3"><div class="card h-100">
+        <div class="card-header d-flex justify-content-between">
+          <span>${j.title} <small class="text-muted">${j.department||''}</small></span>
+          <span class="badge ${j.status==='active'?'bg-success':'bg-secondary'}">${j.status}</span>
+        </div>
+        <div class="card-body" style="max-height:200px;overflow-y:auto;white-space:pre-wrap;font-size:0.85rem">${j.jd_content||'No JD generated'}</div>
+        <div class="card-footer d-flex gap-2">
+          <button class="btn btn-sm btn-outline-donut" onclick="applyAllToJob(${j.id})">Score All</button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="editJob(${j.id})">Edit</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteJob(${j.id})">Delete</button>
+        </div>
+      </div></div>`).join('') || '<p class="text-muted">No jobs yet. Create one!</p>';
+  } catch(e) { document.getElementById('jobs-list').innerHTML=`<div class="alert alert-danger">${e.message}</div>`; }
+}
+
+function showJobModal(jid=null) {
+  currentJobId = jid;
+  document.getElementById('job-modal-title').textContent = jid ? 'Edit Job' : 'New Job';
+  if (jid) {
+    api('/jobs/'+jid).then(j => {
+      document.getElementById('job-title').value = j.title;
+      document.getElementById('job-dept').value = j.department||'';
+      // Parse JD for responsibilities/requirements heuristics
+      const jd = j.jd_content||'';
+      document.getElementById('job-resp').value = '';
+      document.getElementById('job-req').value = '';
+    });
+  } else {
+    document.getElementById('job-title').value = '';
+    document.getElementById('job-dept').value = 'Engineering';
+    document.getElementById('job-resp').value = '';
+    document.getElementById('job-req').value = '';
+    document.getElementById('job-nice').value = '';
+  }
+  new bootstrap.Modal(document.getElementById('jobModal')).show();
+}
+
+async function saveJob() {
+  const title = document.getElementById('job-title').value;
+  const dept = document.getElementById('job-dept').value;
+  const resp = document.getElementById('job-resp').value.split('\n').filter(l=>l.trim());
+  const req = document.getElementById('job-req').value.split('\n').filter(l=>l.trim());
+  const nice = document.getElementById('job-nice').value.split('\n').filter(l=>l.trim());
+  try {
+    if (currentJobId) {
+      await api('/jobs/'+currentJobId, {method:'PUT', body:JSON.stringify({title, department:dept, responsibilities:resp, requirements:req, nice_to_have:nice})});
+    } else {
+      await api('/jobs', {method:'POST', body:JSON.stringify({title, department:dept, responsibilities:resp, requirements:req, nice_to_have:nice})});
+    }
+    bootstrap.Modal.getInstance(document.getElementById('jobModal')).hide();
+    loadJobs();
+  } catch(e) { alert('Save failed: '+e.message); }
+}
+
+async function editJob(id) { showJobModal(id); }
+async function deleteJob(id) { if (confirm('Delete this job?')) { await api('/jobs/'+id, {method:'DELETE'}); loadJobs(); } }
+
+async function applyAllToJob(jid) {
+  try {
+    const cands = await api('/candidates?per_page=100');
+    let count = 0;
+    for (const c of cands.items) {
+      try {
+        await api('/applications', {method:'POST', body:JSON.stringify({candidate_id:c.id, job_id:jid})});
+        count++;
+      } catch(e) { /* already exists */ }
+    }
+    alert(`Scored ${count} candidates for this job.`);
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+// ─── Applications ───
+async function loadApplications() {
+  try {
+    const jobs = await api('/jobs');
+    const sel = document.getElementById('app-job-filter');
+    sel.innerHTML = '<option value="">All Jobs</option>'+jobs.map(j=>`<option value="${j.id}">${j.title}</option>`).join('');
+    
+    const jid = sel.value;
+    const apps = await api(jid ? `/applications?job_id=${jid}` : '/applications');
+    
+    const stages = ['screening','phone_interview','technical_interview','final_interview','offer','rejected','withdrawn'];
+    const stageNames = {screening:'📥 Screening',phone_interview:'📞 Phone',technical_interview:'💻 Technical',final_interview:'👔 Final',offer:'🎉 Offer',rejected:'❌ Rejected',withdrawn:'↩️ Withdrawn'};
+    
+    document.getElementById('app-board').innerHTML = stages.map(stage => {
+      const items = apps.filter(a=>a.stage===stage);
+      return `<div class="col stage-col">
+        <div class="stage-col-title">${stageNames[stage]} (${items.length})</div>
+        ${items.map(a => `
+          <div class="app-card" onclick="moveAppStage(${a.id},'${stage}')">
+            <div class="d-flex justify-content-between align-items-center">
+              <strong style="font-size:0.85rem">${a.candidate_name||'Unknown'}</strong>
+              ${a.score?`<span class="score-badge ${scoreClass(a.score)}">${Math.round(a.score)}</span>`:''}
+            </div>
+            <small class="text-muted">${a.job_title||''}</small>
+          </div>`).join('')}
+      </div>`;
+    }).join('');
+  } catch(e) { document.getElementById('app-board').innerHTML=`<div class="alert alert-danger">${e.message}</div>`; }
+}
+
+async function moveAppStage(appId, currentStage) {
+  const stages = ['screening','phone_interview','technical_interview','final_interview','offer','rejected','withdrawn'];
+  const next = prompt(`Move to stage:\n${stages.map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\nCurrent: ${currentStage}`);
+  if (!next) return;
+  const stage = stages[parseInt(next)-1] || next;
+  await api('/applications/'+appId, {method:'PUT', body:JSON.stringify({stage})});
+  loadApplications();
+}
+
+async function matchAll() {
+  const jid = document.getElementById('app-job-filter').value;
+  if (!jid) return alert('Select a job first');
+  applyAllToJob(jid);
+  loadApplications();
+}
+
+// ─── Templates ───
+async function loadTemplates() {
+  try {
+    const tmpls = await api('/templates');
+    document.getElementById('templates-list').innerHTML = tmpls.map(t => `
+      <div class="col-md-4 mb-3"><div class="card h-100">
+        <div class="card-header d-flex justify-content-between">
+          <span>${t.title}</span>
+          <span class="badge bg-secondary">${t.type} / ${t.channel}</span>
+        </div>
+        <div class="card-body" style="max-height:150px;overflow-y:auto;font-size:0.8rem;white-space:pre-wrap">${t.content.slice(0,300)}${t.content.length>300?'...':''}</div>
+        <div class="card-footer d-flex gap-2">
+          <button class="btn btn-sm btn-outline-donut" onclick="previewTemplateById(${t.id})">Preview</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteTemplate(${t.id})">Delete</button>
+        </div>
+      </div></div>`).join('') || '<p class="text-muted">No templates yet.</p>';
+  } catch(e) { document.getElementById('templates-list').innerHTML=`<div class="alert alert-danger">${e.message}</div>`; }
+}
+
+function showTemplateModal() {
+  document.getElementById('tmpl-title').value='';
+  document.getElementById('tmpl-content').value='';
+  new bootstrap.Modal(document.getElementById('templateModal')).show();
+}
+
+async function saveTemplate() {
+  const body = {
+    title: document.getElementById('tmpl-title').value,
+    type: document.getElementById('tmpl-type').value,
+    channel: document.getElementById('tmpl-channel').value,
+    subject: document.getElementById('tmpl-subject').value,
+    content: document.getElementById('tmpl-content').value,
+  };
+  await api('/templates', {method:'POST', body:JSON.stringify(body)});
+  bootstrap.Modal.getInstance(document.getElementById('templateModal')).hide();
+  loadTemplates();
+}
+
+async function deleteTemplate(id) { if (confirm('Delete template?')) { await api('/templates/'+id, {method:'DELETE'}); loadTemplates(); } }
+
+// ─── Communications ───
+function showCommModal(cid) {
+  currentCandidateId = cid;
+  document.getElementById('comm-content').value = '';
+  api('/templates').then(ts => {
+    document.getElementById('comm-template').innerHTML = '<option value="">-- Select --</option>'+ts.map(t=>`<option value="${t.id}">${t.title}</option>`).join('');
+  });
+  new bootstrap.Modal(document.getElementById('commModal')).show();
+}
+
+async function previewTemplate() {
+  const tid = document.getElementById('comm-template').value;
+  if (!tid) return;
+  const r = await api('/templates/'+tid+'/render', {method:'POST', body:JSON.stringify({candidate_id:currentCandidateId})});
+  document.getElementById('comm-content').value = r.content;
+}
+
+async function previewTemplateById(tid) {
+  const r = await api('/templates/'+tid+'/render', {method:'POST', body:JSON.stringify({candidate_id:1, job_title:'Software Engineer', sender_name:'Donut HR'})});
+  alert(r.content);
+}
+
+async function sendCommunication() {
+  const body = {
+    candidate_id: currentCandidateId,
+    type: document.getElementById('comm-template').selectedOptions[0]?.text||'interview_invite',
+    channel: document.getElementById('comm-channel').value,
+    content: document.getElementById('comm-content').value,
+  };
+  await api('/communications', {method:'POST', body:JSON.stringify(body)});
+  alert('Communication recorded!');
+  bootstrap.Modal.getInstance(document.getElementById('commModal')).hide();
+}
+
+// ─── Settings ───
+async function loadSettings() {
+  // Load criteria
+  try {
+    const crits = await api('/criteria');
+    document.getElementById('criteria-list').innerHTML = crits.map(c => `
+      <div class="d-flex justify-content-between align-items-center mb-2 p-2 rounded" style="background:#12121e">
+        <div><strong>${c.name}</strong> <span class="badge bg-secondary">${c.category}</span><br><small>${c.description||''} — weight: ${c.weight}</small></div>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteCriteria(${c.id})">×</button>
+      </div>`).join('');
+    // Load config
+    document.getElementById('cfg-gmail').value = getConfig('gmail_user');
+    document.getElementById('cfg-gmail-pass').value = getConfig('gmail_pass');
+    document.getElementById('cfg-tg-token').value = getConfig('tg_token');
+  } catch(e) {}
+}
+
+function showCriteriaModal() { new bootstrap.Modal(document.getElementById('criteriaModal')).show(); }
+
+async function saveCriteria() {
+  await api('/criteria', {method:'POST', body:JSON.stringify({
+    category: document.getElementById('crit-cat').value,
+    name: document.getElementById('crit-name').value,
+    description: document.getElementById('crit-desc').value,
+    weight: parseFloat(document.getElementById('crit-weight').value)||1.0,
+  })});
+  bootstrap.Modal.getInstance(document.getElementById('criteriaModal')).hide();
+  loadSettings();
+}
+
+async function deleteCriteria(id) { if (confirm('Delete?')) { await api('/criteria/'+id, {method:'DELETE'}); loadSettings(); } }
+
+// ─── Init ───
+loadDashboard();
+</script>
+</body>
+</html>
