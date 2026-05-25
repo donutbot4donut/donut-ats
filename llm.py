@@ -9,6 +9,14 @@ import urllib.request
 from typing import Optional
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+# Also try reading from file
+if not OPENROUTER_API_KEY:
+    env_file = os.path.join(os.path.dirname(__file__), ".env.openrouter")
+    if os.path.exists(env_file):
+        for line in open(env_file):
+            if line.startswith("OPENROUTER_API_KEY="):
+                OPENROUTER_API_KEY = line.strip().split("=", 1)[1]
+                break
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Models: fast/cheap for parsing, smarter for scoring
