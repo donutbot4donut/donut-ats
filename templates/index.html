@@ -240,6 +240,24 @@ details { color: var(--text-secondary); }
 const API = '/api';
 let currentPage = 1, currentCandidateId = null, currentJobId = null;
 
+// ─── Loading overlay ───
+function showLoading(msg='Loading...') {
+  let el = document.getElementById('loading-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'loading-overlay';
+    el.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;';
+    el.innerHTML = '<div class="spinner-border text-light mb-3" style="width:3rem;height:3rem" role="status"></div><div id="loading-msg" style="font-size:1.1rem;font-weight:500"></div><div id="loading-progress" class="mt-2" style="font-size:0.85rem;color:#aaa"></div>';
+    document.body.appendChild(el);
+  }
+  el.style.display = 'flex';
+  document.getElementById('loading-msg').textContent = msg;
+  document.getElementById('loading-progress').textContent = '';
+}
+function updateLoading(msg) { const el=document.getElementById('loading-msg'); if(el)el.textContent=msg; }
+function updateProgress(text) { const el=document.getElementById('loading-progress'); if(el)el.textContent=text; }
+function hideLoading() { const el=document.getElementById('loading-overlay'); if(el)el.style.display='none'; }
+
 // ─── Helpers ───
 async function api(url, opts={}) {
   const res = await fetch(API + url, { headers: {'Content-Type':'application/json'}, ...opts });
@@ -260,8 +278,10 @@ function saveConfig(key, val) { configCache[key]=val; localStorage.setItem('ats_
 
 // ─── Dashboard ───
 async function loadDashboard() {
+  showLoading('Loading dashboard...');
   try {
     const s = await api('/dashboard/stats');
+    hideLoading();
     document.getElementById('dash-stats').innerHTML = `
       <div class="col-md-3"><div class="card stat-card"><div class="stat-value">${s.total_candidates}</div><div class="stat-label">Total Candidates</div></div></div>
       <div class="col-md-3"><div class="card stat-card"><div class="stat-value">${s.recent_7d}</div><div class="stat-label">New (7 days)</div></div></div>
@@ -328,16 +348,18 @@ async function uploadResume() {
   const file = document.getElementById('upload-file').files[0];
   const source = document.getElementById('upload-source').value;
   if (!file) return alert('Please select a file');
+  showLoading('Parsing resume...');
   const form = new FormData();
   form.append('file', file);
   form.append('source', source);
   try {
     const res = await fetch(API+'/candidates/upload', {method:'POST', body:form});
     const data = await res.json();
-    alert('Resume parsed successfully!');
+    hideLoading();
     bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
     loadCandidates(currentPage);
-  } catch(e) { alert('Upload failed: '+e.message); }
+    alert('Resume parsed successfully! Candidate: ' + (data.candidate?.name || 'Unknown'));
+  } catch(e) { hideLoading(); alert('Upload failed: '+e.message); }
 }
 
 async function deleteCandidate(id) {
@@ -346,8 +368,33 @@ async function deleteCandidate(id) {
   loadCandidates(currentPage);
 }
 
-async function scanEmail() { const r = await api('/candidates/email-ingest', {method:'POST'}); alert(JSON.stringify(r.results, null, 2)); }
-async function scanTG() { const r = await api('/candidates/tg-ingest', {method:'POST'}); alert(JSON.stringify(r.results, null, 2)); }
+async function scanEmail() {
+  showLoading('Scanning Gmail for resumes...');
+  updateProgress('Connecting to jason@donutbrowser.ai...');
+  try {
+    setTimeout(() => updateProgress('Downloading and parsing attachments...'), 2000);
+    const r = await api('/candidates/email-ingest', {method:'POST'});
+    hideLoading();
+    const summary = r.results.find(x=>x.status==='summary');
+    const ingested = r.results.filter(x=>x.status==='ingested');
+    if (summary) {
+      alert(`Scan complete!\nScanned: ${summary.total_scanned} emails\nNew: ${summary.new_ingested} candidates\nDuplicates: ${summary.duplicates}\nErrors: ${summary.errors}`);
+    } else if (ingested.length) {
+      alert(`Ingested ${ingested.length} new candidates!`);
+    } else {
+      alert(JSON.stringify(r.results,null,2));
+    }
+    loadCandidates(currentPage);
+  } catch(e) { hideLoading(); alert('Scan failed: '+e.message); }
+}
+async function scanTG() {
+  showLoading('Scanning Telegram for resumes...');
+  try {
+    const r = await api('/candidates/tg-ingest', {method:'POST'});
+    hideLoading();
+    alert(JSON.stringify(r.results, null, 2));
+  } catch(e) { hideLoading(); alert('Scan failed: '+e.message); }
+}
 
 async function quickScore(cid) {
   const jobs = await api('/jobs');
@@ -424,17 +471,22 @@ async function editJob(id) { showJobModal(id); }
 async function deleteJob(id) { if (confirm('Delete this job?')) { await api('/jobs/'+id, {method:'DELETE'}); loadJobs(); } }
 
 async function applyAllToJob(jid) {
+  showLoading('Scoring all candidates...');
   try {
-    const cands = await api('/candidates?per_page=100');
+    const cands = await api('/candidates?per_page=200');
     let count = 0;
-    for (const c of cands.items) {
+    for (let i = 0; i < cands.items.length; i++) {
+      const c = cands.items[i];
+      updateProgress(`Scoring ${i+1}/${cands.items.length}: ${c.name||'Unknown'}`);
       try {
         await api('/applications', {method:'POST', body:JSON.stringify({candidate_id:c.id, job_id:jid})});
         count++;
       } catch(e) { /* already exists */ }
     }
+    hideLoading();
     alert(`Scored ${count} candidates for this job.`);
-  } catch(e) { alert('Error: '+e.message); }
+    loadApplications();
+  } catch(e) { hideLoading(); alert('Error: '+e.message); }
 }
 
 // ─── Applications ───
