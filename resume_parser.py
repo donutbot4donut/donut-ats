@@ -110,8 +110,13 @@ def extract_name(text: str) -> Optional[str]:
 
 
 def extract_email(text: str) -> Optional[str]:
+    # Try explicit "邮箱" or "E-mail" labels first
+    m = re.search(r"(?:邮箱|E-?mail|Email|电子邮箱|邮件)[：:\s]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", text, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    # Try any email pattern in the text
     m = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
-    return m.group(0) if m else None
+    return m.group(0).strip().rstrip("|.,;>)") if m else None
 
 
 def extract_phone(text: str) -> Optional[str]:
