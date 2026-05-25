@@ -103,11 +103,20 @@ details { color: var(--text-secondary); }
           <button class="btn btn-outline-donut btn-sm" onclick="scanEmail()">📧 Scan Gmail</button>
           <button class="btn btn-outline-donut btn-sm" onclick="scanTG()">📱 Scan Telegram</button>
           <button class="btn btn-donut btn-sm" onclick="showUploadModal()">📤 Upload Resume</button>
+          <button class="btn btn-outline-danger btn-sm" onclick="clearAll()">🗑 Clear All</button>
         </div>
       </div>
       <div class="table-responsive">
         <table class="table table-hover" id="cand-table">
-          <thead><tr><th>Name</th><th>Email</th><th>Source</th><th>Experience</th><th>Skills</th><th>Date</th><th></th></tr></thead>
+          <thead><tr>
+            <th class="sortable" onclick="sortCandidates('name')" style="cursor:pointer">Name <span id="sort-name"></span></th>
+            <th class="sortable" onclick="sortCandidates('age')" style="cursor:pointer">Age <span id="sort-age"></span></th>
+            <th>Education</th>
+            <th>Email</th>
+            <th class="sortable" onclick="sortCandidates('years_of_experience')" style="cursor:pointer">Experience <span id="sort-years_of_experience"></span></th>
+            <th>Score</th>
+            <th></th>
+          </tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -239,6 +248,7 @@ details { color: var(--text-secondary); }
 <script>
 const API = '/api';
 let currentPage = 1, currentCandidateId = null, currentJobId = null;
+let sortBy = null, sortDir = 'asc';
 
 // ─── Loading overlay ───
 function showLoading(msg='Loading...') {
@@ -293,23 +303,46 @@ async function loadDashboard() {
 }
 
 // ─── Candidates ───
+function sortCandidates(col) {
+  if (sortBy === col) {
+    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortBy = col;
+    sortDir = 'asc';
+  }
+  // Update sort indicators
+  document.querySelectorAll('#cand-table th span').forEach(s => s.textContent = '');
+  document.getElementById('sort-' + col).textContent = sortDir === 'asc' ? ' ▲' : ' ▼';
+  loadCandidates();
+}
+
 async function loadCandidates(page=1) {
   currentPage = page;
   const search = document.getElementById('cand-search')?.value || '';
   const source = document.getElementById('cand-source')?.value || '';
+  let url = `/candidates?page=${page}&per_page=20&search=${encodeURIComponent(search)}&source=${encodeURIComponent(source)}`;
+  if (sortBy) url += `&sort_by=${sortBy}&sort_dir=${sortDir}`;
   try {
-    const data = await api(`/candidates?page=${page}&per_page=20&search=${encodeURIComponent(search)}&source=${encodeURIComponent(source)}`);
+    const data = await api(url);
     const tbody = document.querySelector('#cand-table tbody');
-    tbody.innerHTML = data.items.map(c => `
+    tbody.innerHTML = data.items.map(c => {
+      const edu = (c.educations||[])[0];
+      const eduText = edu ? `${edu.degree||''} ${edu.school||''}`.trim() : '-';
+      const scoreHtml = c.avg_score 
+        ? `<span class="score-badge ${c.avg_score>=70?'score-high':c.avg_score>=40?'score-mid':'score-low'}">${Math.round(c.avg_score)}</span>`
+        : '<span class="badge bg-secondary">-</span>';
+      return `
       <tr>
-        <td><a href="#" onclick="showCandidate(${c.id});return false" class="text-decoration-none" style="color:var(--donut-pink)">${c.name||'Unknown'}</a></td>
-        <td>${c.email||'-'}</td>
-        <td><span class="badge bg-secondary">${c.source_channel||'-'}</span></td>
+        <td><a href="#" onclick="showCandidate(${c.id});return false" class="text-decoration-none" style="color:var(--donut-pink);font-weight:500">${c.name||'Unknown'}</a></td>
+        <td>${c.age||'-'}</td>
+        <td><small>${eduText}</small></td>
+        <td style="font-size:0.85rem">${c.email||'-'}</td>
         <td>${c.years_of_experience?c.years_of_experience+' yrs':'-'}</td>
-        <td>${(c.skills||[]).slice(0,4).join(', ')}</td>
-        <td><small>${(c.created_at||'').slice(0,10)}</small></td>
+        <td>${scoreHtml}</td>
         <td><button class="btn btn-sm btn-outline-danger" onclick="deleteCandidate(${c.id})" title="Delete"><i class="bi bi-trash"></i></button></td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
+    if (!data.items.length) tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-3">No candidates found</td></tr>';
     document.getElementById('cand-pagination').innerHTML = data.total>20 ? 
       `<li class="page-item ${page<=1?'disabled':''}"><a class="page-link" href="#" onclick="loadCandidates(${page-1});return false">←</a></li>
        <li class="page-item disabled"><span class="page-link">Page ${page} / ${Math.ceil(data.total/20)}</span></li>
@@ -366,6 +399,20 @@ async function deleteCandidate(id) {
   if (!confirm('Delete this candidate?')) return;
   await api('/candidates/'+id, {method:'DELETE'});
   loadCandidates(currentPage);
+}
+
+async function clearAll() {
+  if (!confirm('⚠️ This will permanently delete ALL candidates, applications, and resume files.\n\nAre you sure?')) return;
+  if (!confirm('Final confirmation: Delete everything?')) return;
+  showLoading('Clearing all data...');
+  try {
+    const r = await api('/admin/clear-all', {method:'POST'});
+    hideLoading();
+    alert(`Cleared! Deleted ${r.deleted_candidates} candidates.`);
+    loadCandidates();
+    loadDashboard();
+    loadApplications();
+  } catch(e) { hideLoading(); alert('Failed: '+e.message); }
 }
 
 async function scanEmail() {

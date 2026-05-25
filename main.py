@@ -22,6 +22,7 @@ from scoring import score_candidate_for_job, rank_candidates
 from jd_manager import create_job_with_jd, generate_jd
 from email_ingest import scan_gmail_for_resumes
 from tg_ingest import scan_telegram_resumes
+from llm import smart_parse_resume, smart_score_candidate
 
 
 @asynccontextmanager
@@ -158,6 +159,8 @@ def list_candidates(
     source: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "asc",
 ):
     query = db.query(Candidate)
     if search:
@@ -174,14 +177,39 @@ def list_candidates(
     if date_to:
         query = query.filter(Candidate.created_at <= datetime.fromisoformat(date_to))
 
+    # Sorting
+    sort_column = Candidate.created_at
+    if sort_by:
+        col_map = {
+            "name": Candidate.name,
+            "age": Candidate.age,
+            "email": Candidate.email,
+            "years_of_experience": Candidate.years_of_experience,
+            "created_at": Candidate.created_at,
+        }
+        sort_column = col_map.get(sort_by, Candidate.created_at)
+    if sort_dir == "desc":
+        sort_column = sort_column.desc()
+
     total = query.count()
-    candidates = query.order_by(Candidate.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    candidates = query.order_by(sort_column).offset((page - 1) * per_page).limit(per_page).all()
+
+    # Get scores for all candidates
+    candidate_ids = [c.id for c in candidates]
+    from sqlalchemy import func as sa_func
+    scores = {}
+    if candidate_ids:
+        score_rows = db.query(
+            Application.candidate_id,
+            sa_func.avg(Application.score).label("avg_score")
+        ).filter(Application.candidate_id.in_(candidate_ids)).group_by(Application.candidate_id).all()
+        scores = {row[0]: round(row[1], 1) if row[1] else None for row in score_rows}
 
     return {
         "total": total,
         "page": page,
         "per_page": per_page,
-        "items": [_candidate_dict(c) for c in candidates],
+        "items": [_candidate_dict(c, scores) for c in candidates],
     }
 
 
@@ -206,7 +234,7 @@ async def upload_resume(
         raise HTTPException(400, f"Unsupported format: {ext}. Only PDF and DOCX are supported.")
 
     filepath = save_uploaded_file(file, UPLOAD_DIR)
-    parsed = parse_resume(filepath)
+    parsed = smart_parse_resume(filepath)
 
     candidate = Candidate(
         name=parsed.get("name"),
@@ -440,7 +468,28 @@ def create_application(body: dict, db: Session = Depends(get_db)):
     if not candidate or not job:
         raise HTTPException(404, "Candidate or Job not found")
 
-    result = score_candidate_for_job(db, candidate, job)
+    result = smart_score_candidate(db, candidate, job)
+    
+    # Upsert application with LLM result
+    app = db.query(Application).filter(
+        Application.candidate_id == candidate_id,
+        Application.job_id == job_id,
+    ).first()
+
+    if not app:
+        app = Application(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            stage="screening",
+        )
+        db.add(app)
+
+    app.score = result["total_score"]
+    app.score_detail = json.dumps(result.get("detail", {}), ensure_ascii=False)
+    if result.get("overall_reason"):
+        app.notes = result.get("overall_reason", "")
+    db.commit()
+    
     return {"status": "created", **result}
 
 
@@ -492,7 +541,13 @@ def rescore_application(application_id: int, db: Session = Depends(get_db)):
     a = db.query(Application).filter(Application.id == application_id).first()
     if not a:
         raise HTTPException(404, "Application not found")
-    result = score_candidate_for_job(db, a.candidate, a.job)
+    result = smart_score_candidate(db, a.candidate, a.job)
+    a.score = result["total_score"]
+    a.score_detail = json.dumps(result.get("detail", {}), ensure_ascii=False)
+    if result.get("overall_reason"):
+        a.notes = result.get("overall_reason", "")
+    a.updated_at = datetime.now(timezone.utc)
+    db.commit()
     return {"status": "rescored", **result}
 
 
@@ -624,6 +679,51 @@ def list_communications(
     } for c in query.order_by(CommunicationLog.sent_at.desc()).limit(50).all()]
 
 
+# ═══════════ ADMIN ═══════════
+
+@app.post("/api/admin/clear-all")
+def clear_all_resumes(db: Session = Depends(get_db)):
+    """Delete all candidates, their related records, and resume files."""
+    import shutil
+    from database import Education, WorkExperience, ProjectExperience, Application, CommunicationLog
+    
+    count = db.query(Candidate).count()
+    
+    # Delete resume files
+    candidates = db.query(Candidate).all()
+    for c in candidates:
+        if c.resume_path and os.path.exists(c.resume_path):
+            try:
+                os.remove(c.resume_path)
+            except OSError:
+                pass
+    
+    # Cascade delete (rely on cascade rules)
+    db.query(CommunicationLog).delete()
+    db.query(Application).delete()
+    db.query(ProjectExperience).delete()
+    db.query(WorkExperience).delete()
+    db.query(Education).delete()
+    db.query(Candidate).delete()
+    
+    # Clean uploads directory
+    upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
+    if os.path.exists(upload_dir):
+        shutil.rmtree(upload_dir)
+        os.makedirs(upload_dir, exist_ok=True)
+    
+    # Reset DB sequences
+    from sqlalchemy import text
+    for table in ["candidates", "education", "work_experience", "project_experience", "applications", "communication_log"]:
+        try:
+            db.execute(text(f"DELETE FROM sqlite_sequence WHERE name='{table}'"))
+        except:
+            pass
+    
+    db.commit()
+    return {"status": "cleared", "deleted_candidates": count}
+
+
 # ═══════════ DASHBOARD ═══════════
 
 @app.get("/api/dashboard/stats")
@@ -659,7 +759,8 @@ def dashboard_stats(db: Session = Depends(get_db)):
 
 # ═══════════ HELPERS ═══════════
 
-def _candidate_dict(c: Candidate) -> dict:
+def _candidate_dict(c: Candidate, scores: dict = None) -> dict:
+    score = (scores or {}).get(c.id, None)
     return {
         "id": c.id,
         "name": c.name,
@@ -670,6 +771,7 @@ def _candidate_dict(c: Candidate) -> dict:
         "expected_salary_max": c.expected_salary_max,
         "years_of_experience": c.years_of_experience,
         "source_channel": c.source_channel,
+        "avg_score": score,
         "skills": json.loads(c.skills_json) if c.skills_json else [],
         "educations": [{
             "school": e.school, "degree": e.degree,
