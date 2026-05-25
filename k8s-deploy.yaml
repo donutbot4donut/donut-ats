@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: donut-ats
+  namespace: staging
+  labels:
+    app.kubernetes.io/name: donut-ats
+    app.kubernetes.io/instance: donut-ats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: donut-ats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: donut-ats
+        app.kubernetes.io/instance: donut-ats
+    spec:
+      containers:
+        - name: donut-ats
+          image: ghcr.io/donutbot4donut/donut-ats:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /api/dashboard/stats
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/dashboard/stats
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: donut-ats
+  namespace: staging
+  labels:
+    app.kubernetes.io/name: donut-ats
+    app.kubernetes.io/instance: donut-ats
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+  selector:
+    app.kubernetes.io/name: donut-ats
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: donut-ats
+  namespace: staging
+  labels:
+    app.kubernetes.io/name: donut-ats
+    app.kubernetes.io/instance: donut-ats
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-southeast-2:842675974417:certificate/336a2901-fedd-46c8-a7e4-2b337eb63643
+    alb.ingress.kubernetes.io/group.name: donut-cluster
+    alb.ingress.kubernetes.io/healthcheck-path: /api/dashboard/stats
+spec:
+  ingressClassName: alb
+  rules:
+    - host: staging.donutlabs.dev
+      http:
+        paths:
+          - path: /ats/
+            pathType: Prefix
+            backend:
+              service:
+                name: donut-ats
+                port:
+                  name: http
